@@ -13,6 +13,11 @@ type Config struct {
 	// Port is the network port on which the API server will listen.
 	Port int `yaml:"port" json:"-"`
 
+	// Harnesses defines optional per-harness listener profiles. Each profile
+	// exposes the same proxy API on its own port with an optional request delay
+	// and model allowlist.
+	Harnesses []HarnessConfig `yaml:"harnesses,omitempty" json:"harnesses,omitempty"`
+
 	// TLS config controls HTTPS server settings.
 	TLS TLSConfig `yaml:"tls" json:"tls"`
 
@@ -160,4 +165,13 @@ type Config struct {
 
 	// Payload defines default and override rules for provider payload parameters.
 	Payload PayloadConfig `yaml:"payload" json:"payload"`
+}
+
+// HarnessConfig controls an additional local listener for a client harness.
+type HarnessConfig struct {
+	Name    string   `yaml:"name" json:"name"`
+	Host    string   `yaml:"host,omitempty" json:"host,omitempty"`
+	Port    int      `yaml:"port" json:"port"`
+	DelayMs int      `yaml:"delay-ms,omitempty" json:"delay-ms,omitempty"`
+	Models  []string `yaml:"models,omitempty" json:"models,omitempty"`
 }

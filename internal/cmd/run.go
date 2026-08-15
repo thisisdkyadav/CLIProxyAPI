@@ -12,6 +12,7 @@ import (
 
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/api"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/config"
+	"github.com/router-for-me/CLIProxyAPI/v7/internal/harnessproxy"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/pluginhost"
 	"github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy"
 	log "github.com/sirupsen/logrus"
@@ -31,6 +32,18 @@ func StartService(cfg *config.Config, configPath string, localPassword string) {
 
 // StartServiceWithPluginHost builds and runs the proxy service with a shared plugin host.
 func StartServiceWithPluginHost(cfg *config.Config, configPath string, localPassword string, host *pluginhost.Host, serverOptions ...api.ServerOption) {
+	harnesses, errHarnesses := harnessproxy.Start(cfg)
+	if errHarnesses != nil {
+		log.Errorf("failed to start harness listeners: %v", errHarnesses)
+		return
+	}
+	defer func() {
+		shutdownCtx, cancelShutdown := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancelShutdown()
+		if errStop := harnesses.Stop(shutdownCtx); errStop != nil {
+			log.Errorf("failed to stop harness listeners: %v", errStop)
+		}
+	}()
 	builder := cliproxy.NewBuilder().
 		WithConfig(cfg).
 		WithConfigPath(configPath).
@@ -75,6 +88,10 @@ func StartServiceBackground(cfg *config.Config, configPath string, localPassword
 
 // StartServiceBackgroundWithPluginHost starts the proxy service with a shared plugin host.
 func StartServiceBackgroundWithPluginHost(cfg *config.Config, configPath string, localPassword string, host *pluginhost.Host, serverOptions ...api.ServerOption) (cancel func(), done <-chan struct{}) {
+	harnesses, errHarnesses := harnessproxy.Start(cfg)
+	if errHarnesses != nil {
+		log.Errorf("failed to start harness listeners: %v", errHarnesses)
+	}
 	builder := cliproxy.NewBuilder().
 		WithConfig(cfg).
 		WithConfigPath(configPath).
@@ -98,6 +115,13 @@ func StartServiceBackgroundWithPluginHost(cfg *config.Config, configPath string,
 
 	go func() {
 		defer close(doneCh)
+		defer func() {
+			shutdownCtx, cancelShutdown := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancelShutdown()
+			if errStop := harnesses.Stop(shutdownCtx); errStop != nil {
+				log.Errorf("failed to stop harness listeners: %v", errStop)
+			}
+		}()
 		if err := service.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
 			log.Errorf("proxy service exited with error: %v", err)
 		}

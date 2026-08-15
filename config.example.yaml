@@ -5,6 +5,21 @@ host: ""
 # Server port
 port: 8317
 
+# Optional per-harness local listeners. Each listener forwards to the main
+# server, adds X-CLIProxy-Harness, delays requests by delay-ms, and optionally
+# restricts GET /v1/models to the listed model IDs.
+# harnesses:
+#   - name: claude-vscode
+#     host: 127.0.0.1
+#     port: 8320
+#     delay-ms: 250
+#     models:
+#       - gpt-5.6-luna
+#       - claude-opus-4-8
+#   - name: codex-cli
+#     port: 8321
+#     delay-ms: 0
+
 # TLS settings for HTTPS. When enabled, the server listens with the provided certificate and key.
 tls:
   enable: false
