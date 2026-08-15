@@ -1,6 +1,7 @@
 package harnessproxy
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -68,36 +69,51 @@ func newHandler(target *url.URL, profile config.HarnessConfig) http.Handler {
 		originalDirector(r)
 		r.Header.Set("X-CLIProxy-Harness", profile.Name)
 	}
+	if len(profile.Models) > 0 {
+		allowed := make(map[string]struct{}, len(profile.Models))
+		for _, model := range profile.Models {
+			allowed[strings.TrimSpace(model)] = struct{}{}
+		}
+		proxy.ModifyResponse = func(resp *http.Response) error {
+			if resp.Request == nil || resp.Request.Method != http.MethodGet || resp.Request.URL.Path != "/v1/models" {
+				return nil
+			}
+			body, errRead := io.ReadAll(resp.Body)
+			if errRead != nil {
+				return errRead
+			}
+			_ = resp.Body.Close()
+			var payload struct {
+				Data []map[string]any `json:"data"`
+			}
+			if errDecode := json.Unmarshal(body, &payload); errDecode != nil {
+				resp.Body = io.NopCloser(bytes.NewReader(body))
+				return nil
+			}
+			filtered := payload.Data[:0]
+			for _, item := range payload.Data {
+				id, _ := item["id"].(string)
+				if _, ok := allowed[id]; ok {
+					filtered = append(filtered, item)
+				}
+			}
+			payload.Data = filtered
+			updated, errMarshal := json.Marshal(payload)
+			if errMarshal != nil {
+				return errMarshal
+			}
+			resp.Body = io.NopCloser(bytes.NewReader(updated))
+			resp.ContentLength = int64(len(updated))
+			resp.Header.Set("Content-Length", strconv.Itoa(len(updated)))
+			return nil
+		}
+	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if profile.DelayMs > 0 {
 			time.Sleep(time.Duration(profile.DelayMs) * time.Millisecond)
 		}
-		if len(profile.Models) > 0 && r.Method == http.MethodGet && r.URL.Path == "/v1/models" {
-			writeModels(w, r, profile.Models)
-			return
-		}
 		proxy.ServeHTTP(w, r)
 	})
-}
-
-func writeModels(w http.ResponseWriter, r *http.Request, models []string) {
-	// Preserve the OpenAI list shape while keeping model visibility scoped to
-	// this harness. The actual provider routing still happens on the main API.
-	type model struct {
-		ID      string `json:"id"`
-		Object  string `json:"object"`
-		Created int64  `json:"created"`
-		OwnedBy string `json:"owned_by"`
-	}
-	items := make([]model, 0, len(models))
-	for _, id := range models {
-		if strings.TrimSpace(id) == "" {
-			continue
-		}
-		items = append(items, model{ID: id, Object: "model", Created: time.Now().Unix(), OwnedBy: "cliproxyapi"})
-	}
-	_ = json.NewEncoder(w).Encode(map[string]any{"object": "list", "data": items})
-	_ = r
 }
 
 // Stop shuts down all harness listeners.
